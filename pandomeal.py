@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import statistics
 import sys
@@ -213,6 +214,87 @@ def _clean(text: str) -> str:
     return text
 
 
+# ---------------------------------------------------------------- tntworks 카드
+
+APP_SLUG = "pandomeal"  # tntworks/manifest.json 의 slug 와 같아야 한다
+
+
+def load_env(path: Path = ROOT / ".env") -> None:
+    """KEY=VALUE 줄만 읽는다. 이미 설정된 환경변수가 우선한다."""
+    if not path.exists():
+        return
+    for line in path.read_text().splitlines():
+        key, sep, value = line.partition("=")
+        if sep and not key.strip().startswith("#"):
+            os.environ.setdefault(key.strip(), value.strip())
+
+
+def _md(d: date) -> str:
+    return f"{d.month}/{d.day}"
+
+
+def build_card(week: dict, today: date) -> dict:
+    """주간 식단 JSON 을 tntworks 카드 요청 본문으로 바꾼다. url 이 카드의 열쇠라 같은 주는 같은 카드가 고쳐진다."""
+    days = week["days"]
+    first, last = date.fromisoformat(days[0]["date"]), date.fromisoformat(days[-1]["date"])
+    title = f"판교도서관 식단 · {_md(first)}({days[0]['weekday']}) ~ {_md(last)}({days[-1]['weekday']})"
+    today_menu = next((d for d in days if d["date"] == today.isoformat()), None)
+
+    if today_menu is None:
+        status = {"label": "이번 주 아님", "tone": "neutral"}
+        attributes = []
+    elif len(today_menu["lunch"]) <= 1 and today_menu["lunch"] == today_menu["dinner"]:
+        # 휴관일은 중식·석식 칸이 하나로 합쳐져 "휴관", "추석연휴"처럼 같은 글자만 나온다.
+        status = {"label": f"오늘 {(today_menu['lunch'] or ['휴무'])[0]}", "tone": "warning"}
+        attributes = []
+    else:
+        status = {"label": f"오늘 {_md(today)}({today_menu['weekday']})", "tone": "info"}
+        attributes = [
+            {"name": "오늘 중식", "value": ", ".join(today_menu["lunch"])[:200]},
+            {"name": "오늘 석식", "value": ", ".join(today_menu["dinner"])[:200]},
+        ]
+
+    messages = []
+    for d in days:
+        day = date.fromisoformat(d["date"])
+        mark = " · 오늘" if day == today else ""
+        body = f"**중식** {', '.join(d['lunch']) or '-'}\n\n**석식** {', '.join(d['dinner']) or '-'}"
+        messages.append({
+            "subject": f"{_md(day)} ({d['weekday']}){mark}",
+            "body": body[:4000],
+            "timestamp": f"{d['date']}T00:00:00+09:00",
+        })
+
+    return {
+        "kind": APP_SLUG,
+        "url": week["source_url"],
+        "title": title,
+        "subtitle": "도서관 게시판 이미지를 OCR로 읽은 내용입니다. 오타가 있으면 원본을 확인하세요.",
+        "meta": {"title": title, "status": status, "attributes": attributes, "messages": messages, "actions": []},
+    }
+
+
+def current_week(today: date) -> dict | None:
+    for path in sorted(DATA_DIR.glob("*.json"), reverse=True):
+        week = json.loads(path.read_text())
+        if any(d["date"] == today.isoformat() for d in week["days"]):
+            return week
+    return None
+
+
+def post_card(week: dict, today: date) -> None:
+    base = os.environ.get("TNTWORKS_URL", "https://api.tntlabs.dev").rstrip("/")
+    issue = os.environ["TNTWORKS_ISSUE"]
+    r = session.post(
+        f"{base}/api/issues/{issue}/attachments",
+        json=build_card(week, today),
+        headers={"Authorization": f"Bearer {os.environ['TNTWORKS_TOKEN']}"},
+        timeout=30,
+    )
+    if not r.ok:
+        raise RuntimeError(f"tntworks {r.status_code}: {r.text[:300]}")
+
+
 # ---------------------------------------------------------------- 실행
 
 
@@ -256,6 +338,7 @@ def main() -> int:
     ap.add_argument("--pages", type=int, default=1, help="확인할 목록 페이지 수 (과거분 수집 시 늘린다)")
     ap.add_argument("--force", action="store_true", help="이미 저장된 주도 다시 받는다")
     args = ap.parse_args()
+    load_env()
 
     failed = 0
     for page in range(1, args.pages + 1):
@@ -268,6 +351,20 @@ def main() -> int:
                 continue
             if out:
                 print(f"[저장] {post.title} -> {out.relative_to(ROOT)}")
+
+    # 토큰이 없으면 크롤링만 한다.
+    if os.environ.get("TNTWORKS_TOKEN") and os.environ.get("TNTWORKS_ISSUE"):
+        today = date.today()
+        week = current_week(today)
+        if week is None:
+            print(f"[카드] {today} 이 들어 있는 주 식단이 아직 없음")
+        else:
+            try:
+                post_card(week, today)
+                print(f"[카드] {os.environ['TNTWORKS_ISSUE']} 에 {week['week_start']} 주 카드 갱신")
+            except Exception as e:
+                failed += 1
+                print(f"[실패] 카드 게시: {e}", file=sys.stderr)
     return 1 if failed else 0
 
 

@@ -1,0 +1,8 @@
+{
+  "manifestVersion": 1,
+  "slug": "pandomeal",
+  "name": "판교도서관 식단",
+  "description": "판교도서관 구내식당 주간 식단을 매일 아침 이슈 카드로 갱신합니다",
+  "scopes": ["read", "attachments:write"],
+  "events": []
+}

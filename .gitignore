@@ -4,3 +4,4 @@ logs/
 .omc/
 data/
 images/
+.env
