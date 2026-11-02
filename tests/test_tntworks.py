@@ -131,3 +131,11 @@ def test_holiday_comment_once_a_day(tmp_path, monkeypatch):
     week = make_week()
     assert post_meal_comment(week, datetime(2026, 11, 6, 9, 0)) is True
     assert post_meal_comment(week, datetime(2026, 11, 6, 13, 30)) is False
+
+
+def test_current_week_ignores_comment_state(tmp_path, monkeypatch):
+    # 회귀: comment-state.json 을 식단으로 읽어 KeyError: 'days' 로 죽었다.
+    monkeypatch.setattr(pandomeal, "DATA_DIR", tmp_path)
+    (tmp_path / "2026-11-02.json").write_text(json.dumps(make_week()))
+    (tmp_path / "comment-state.json").write_text(json.dumps({"key": "2026-11-02:lunch", "id": "c1"}))
+    assert pandomeal.current_week(date(2026, 11, 3))["week_start"] == "2026-11-02"

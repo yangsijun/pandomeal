@@ -307,7 +307,8 @@ def build_summary(week: dict, now: datetime, next_week: dict | None = None) -> d
 
 
 def current_week(today: date) -> dict | None:
-    for path in sorted(DATA_DIR.glob("*.json"), reverse=True):
+    # 주 식단 파일(YYYY-MM-DD.json)만 본다. 같은 폴더의 comment-state.json 은 식단이 아니다.
+    for path in sorted(DATA_DIR.glob("[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9].json"), reverse=True):
         week = json.loads(path.read_text())
         if any(d["date"] == today.isoformat() for d in week["days"]):
             return week
