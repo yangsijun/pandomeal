@@ -259,32 +259,23 @@ def _day_label(day: dict) -> str:
     return f"{_md(date.fromisoformat(day['date']))}({day['weekday']})"
 
 
-def _role(i: int, dish: str) -> str:
-    """지표 타일 이름. 식단표에는 구분이 없어 자리와 이름으로 짐작한다: 보통 국, 주메뉴, 반찬 순이다."""
-    if dish.startswith("서비스코너:"):
-        return "서비스코너"
-    if i == 1:
-        return "주메뉴"
-    return "국" if re.search(r"(국|탕|찌개|육개장)$", dish) else "반찬"
-
-
 def _day_of(week: dict | None, d: date) -> dict | None:
     return next((x for x in (week or {}).get("days", []) if x["date"] == d.isoformat()), None)
 
 
 def build_summary(week: dict, now: datetime, next_week: dict | None = None) -> dict:
-    """앱 페이지(사이드바 › 앱)에 올릴 요약. 지금 끼니 메뉴를 큰 지표 타일로 보여준다.
+    """앱 페이지(사이드바 › 앱)에 올릴 요약. 지금 끼니 메뉴를 보여준다.
 
     요약은 보낼 때마다 통째로 바뀌므로 매번 전체를 만든다. next_week 는 내일이 다음 주일 때(일요일 석식 이후) 쓴다.
     """
     day = _day_of(week, now.date())
     meal = meal_at(now)
+    # 메뉴를 제목 한 줄에 넣는다: 앱 페이지에서 가장 큰 글자이고, 나누거나 분류하지 않아도 한눈에 읽힌다.
     if _closed(day):
-        title, status, metrics = f"{_day_label(day)} {_closed(day)}", {"label": _closed(day), "tone": "warning"}, []
+        title, status = _closed(day), {"label": _day_label(day), "tone": "warning"}
     else:
-        items = dishes(day, meal)[:8]
-        title, status = f"{_day_label(day)} {MEAL_NAME[meal]}", {"label": MEAL_NAME[meal], "tone": "info"}
-        metrics = [{"label": _role(i, x), "value": x.removeprefix("서비스코너:")[:40]} for i, x in enumerate(items)]
+        title = " · ".join(dishes(day, meal)) or "-"
+        status = {"label": f"{_day_label(day)} {MEAL_NAME[meal]}", "tone": "info"}
 
     # 다음 끼니 미리보기: 중식 때는 오늘 석식, 석식 때는 내일 중식.
     if meal == "lunch":
@@ -300,7 +291,6 @@ def build_summary(week: dict, now: datetime, next_week: dict | None = None) -> d
     return {
         "title": title[:200],
         "status": status,
-        "metrics": metrics,
         "attributes": attributes,
         "links": [{"label": "원본 식단표", "url": week["source_url"]}],
     }

@@ -25,18 +25,18 @@ def test_slug_matches_manifest():
     assert set(MANIFEST["scopes"]) >= {"summary:write", "comments:write"}
 
 
-def test_lunch_summary_shows_dishes_as_metrics():
+def test_lunch_summary_puts_menu_in_title():
     s = build_summary(make_week(), datetime(2026, 11, 3, 9, 0))
-    assert s["title"] == "11/3(화) 중식"
-    assert s["status"] == {"label": "중식", "tone": "info"}
-    assert s["metrics"] == [{"label": "국", "value": "황태미역국"}, {"label": "주메뉴", "value": "깻잎콩불고기"}]  # 밥·김치 제외
+    assert s["title"] == "황태미역국 · 깻잎콩불고기"  # 밥·김치 제외
+    assert s["status"] == {"label": "11/3(화) 중식", "tone": "info"}
+    assert "metrics" not in s
     assert s["attributes"] == [{"name": "다음 · 11/3(화) 석식", "value": "등촌샤브칼국수"}]
     assert s["links"] == [{"label": "원본 식단표", "url": "https://example.com/post?postIdx=1"}]
 
 
 def test_dinner_summary_previews_tomorrow_lunch():
     s = build_summary(make_week(), datetime(2026, 11, 5, 13, 30))
-    assert s["title"] == "11/5(목) 석식"
+    assert s["status"]["label"] == "11/5(목) 석식"
     assert s["attributes"] == [{"name": "다음 · 11/6(금) 중식", "value": "휴관"}]
 
 
@@ -51,15 +51,8 @@ def test_sunday_dinner_uses_next_week():
 
 def test_holiday():
     s = build_summary(make_week(), datetime(2026, 11, 6, 9, 0))
-    assert s["title"] == "11/6(금) 휴관"
-    assert s["status"] == {"label": "휴관", "tone": "warning"}
-    assert s["metrics"] == []
-
-
-def test_service_corner_tile():
-    week = make_week()
-    week["days"][0]["lunch"] += ["서비스코너:소면"]
-    assert build_summary(week, datetime(2026, 11, 2, 9, 0))["metrics"][-1] == {"label": "서비스코너", "value": "소면"}
+    assert s["title"] == "휴관"
+    assert s["status"] == {"label": "11/6(금)", "tone": "warning"}
 
 
 def test_within_summary_limits():
@@ -68,7 +61,6 @@ def test_within_summary_limits():
     s = build_summary(week, datetime(2026, 11, 2, 9, 0))
     assert set(s) <= {"title", "status", "metrics", "attributes", "messages", "links"}  # 모르는 필드는 400
     assert len(s["title"]) <= 200 and len(s["status"]["label"]) <= 40
-    assert len(s["metrics"]) <= 8 and all(0 < len(m["value"]) <= 40 and len(m["label"]) <= 40 for m in s["metrics"])
     assert len(s["attributes"]) <= 12 and all(len(a["name"]) <= 40 and len(a["value"]) <= 200 for a in s["attributes"])
 
 

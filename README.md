@@ -1,6 +1,6 @@
 # pandomeal
 
-판교도서관 구내식당 [주간식단표 게시판](https://www.snlib.go.kr/pg/menu/10511/bbs/20023/bbsPostList.do)에서 새 식단표 이미지를 받아 `images/`에 저장하고, macOS Vision OCR로 요일별 중식/석식을 읽어 `data/<주 시작일>.json`으로 저장한다. 토큰을 넣으면 tntworks **앱 페이지**(사이드바 › 앱 › 판교도서관 식단, iOS 홈 › 앱)에 **지금 끼니** 메뉴를 큰 타일로 올린다 (13:30 전 중식, 이후 석식, 밥·김치 제외, 다음 끼니 미리보기). 또 이슈 [TNT-477](https://works.tntlabs.dev/issue/TNT-477)에 끼니마다 메뉴 댓글을 달고 직전 댓글은 지운다. 이슈 구독자는 그 댓글을 푸시로 받는다.
+판교도서관 구내식당 [주간식단표 게시판](https://www.snlib.go.kr/pg/menu/10511/bbs/20023/bbsPostList.do)에서 새 식단표 이미지를 받아 `images/`에 저장하고, macOS Vision OCR로 요일별 중식/석식을 읽어 `data/<주 시작일>.json`으로 저장한다. 토큰을 넣으면 tntworks **앱 페이지**(사이드바 › 앱 › 판교도서관 식단, iOS 홈 › 앱)에 **지금 끼니** 메뉴를 요약 제목 한 줄로 올린다 (13:30 전 중식, 이후 석식, 밥·김치 제외, 다음 끼니 미리보기). 또 이슈 [TNT-477](https://works.tntlabs.dev/issue/TNT-477)에 끼니마다 메뉴 댓글을 달고 직전 댓글은 지운다. 이슈 구독자는 그 댓글을 푸시로 받는다.
 
 운영은 tntworks 와 같은 맥 미니에서 한다. tntworks 와 같은 방식으로 숨은 서비스 계정(`pandomeal`)과 시스템 LaunchDaemon(`xyz.tntlab.pandomeal`)을 쓰므로, 아무도 로그인하지 않아도 매일 09:00(중식)·13:30(석식) 에 돈다. FileVault 잠금 화면에서 멈춘 동안은 돌지 않는다 (tntworks `docs/OPERATIONS.md` "재부팅과 FileVault").
 
