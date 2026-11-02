@@ -51,5 +51,5 @@ launchctl bootout "system/$LABEL" 2>/dev/null || true
 launchctl bootstrap system "$PLIST"
 
 echo "설치 완료: $APP ($(sudo -u "$SUDO_USER" git -C "$SRC" rev-parse --short HEAD))"
-grep -q '^TNTWORKS_TOKEN=.' "$APP/.env" || echo "tntworks 카드를 쓰려면: sudo nano $APP/.env 에 TNTWORKS_TOKEN 을 넣고 이 스크립트를 다시 실행"
+grep -q '^TNTWORKS_TOKEN=.' "$APP/.env" || echo "tntworks 앱 페이지·댓글을 쓰려면: sudo nano $APP/.env 에 TNTWORKS_TOKEN 을 넣고 이 스크립트를 다시 실행"
 echo "로그: sudo tail $APP/logs/crawler.log"

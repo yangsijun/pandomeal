@@ -2,11 +2,10 @@
   "manifestVersion": 1,
   "slug": "pandomeal",
   "name": "판교도서관 식단",
-  "description": "판교도서관 구내식당 식단을 매일 아침 이슈 카드와 댓글로 알려줍니다",
+  "description": "판교도서관 구내식당의 지금 끼니 메뉴를 앱 페이지에 보여주고, 끼니마다 댓글로 알려줍니다",
   "scopes": [
-    "read",
-    "attachments:write",
-    "comments:write"
+    "comments:write",
+    "summary:write"
   ],
   "events": []
 }

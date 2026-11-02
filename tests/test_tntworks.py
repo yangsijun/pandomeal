@@ -2,7 +2,7 @@ import json
 from datetime import date, datetime
 from pathlib import Path
 
-from pandomeal import APP_SLUG, build_card
+from pandomeal import APP_SLUG, build_summary
 
 MANIFEST = json.loads((Path(__file__).parents[1] / "tntworks" / "manifest.json").read_text())
 
@@ -22,37 +22,57 @@ def make_week():
 
 def test_slug_matches_manifest():
     assert MANIFEST["slug"] == APP_SLUG
-    assert set(MANIFEST["scopes"]) >= {"attachments:write"}
+    assert set(MANIFEST["scopes"]) >= {"summary:write", "comments:write"}
 
 
-def test_lunch_before_1330_dinner_after():
+def test_lunch_summary_shows_dishes_as_metrics():
+    s = build_summary(make_week(), datetime(2026, 11, 3, 9, 0))
+    assert s["title"] == "11/3(화) 중식"
+    assert s["status"] == {"label": "중식", "tone": "info"}
+    assert s["metrics"] == [{"label": "국", "value": "황태미역국"}, {"label": "주메뉴", "value": "깻잎콩불고기"}]  # 밥·김치 제외
+    assert s["attributes"] == [{"name": "다음 · 11/3(화) 석식", "value": "등촌샤브칼국수"}]
+    assert s["links"] == [{"label": "원본 식단표", "url": "https://example.com/post?postIdx=1"}]
+
+
+def test_dinner_summary_previews_tomorrow_lunch():
+    s = build_summary(make_week(), datetime(2026, 11, 5, 13, 30))
+    assert s["title"] == "11/5(목) 석식"
+    assert s["attributes"] == [{"name": "다음 · 11/6(금) 중식", "value": "휴관"}]
+
+
+def test_sunday_dinner_uses_next_week():
     week = make_week()
-    lunch = build_card(week, datetime(2026, 11, 3, 9, 0))
-    assert lunch["kind"] == "pandomeal" and lunch["url"] == "https://example.com/post?postIdx=1"
-    meta = lunch["meta"]
-    assert meta["title"] == "중식 · 깻잎콩불고기"
-    assert meta["status"] == {"label": "11/3(화)", "tone": "info"}
-    assert meta["messages"] == [{"subject": "11/3(화) 중식", "body": "- 황태미역국\n- 깻잎콩불고기"}]  # 밥·김치 제외
-
-    dinner = build_card(week, datetime(2026, 11, 3, 13, 30))["meta"]
-    assert dinner["title"] == "석식 · 등촌샤브칼국수"
-    assert dinner["messages"][0]["body"] == "- 등촌샤브칼국수"
+    nxt = make_week()
+    nxt["days"] = [dict(nxt["days"][0], date="2026-11-09")]
+    s = build_summary(week, datetime(2026, 11, 8, 18, 0), nxt)
+    assert s["attributes"][0]["name"] == "다음 · 11/9(월) 중식"
+    assert build_summary(week, datetime(2026, 11, 8, 18, 0))["attributes"] == []  # 다음 주 식단이 아직 없음
 
 
 def test_holiday():
-    meta = build_card(make_week(), datetime(2026, 11, 6, 9, 0))["meta"]
-    assert meta["title"] == "11/6(금) 휴관"
-    assert meta["status"] == {"label": "휴관", "tone": "warning"}
-    assert meta["messages"] == []
+    s = build_summary(make_week(), datetime(2026, 11, 6, 9, 0))
+    assert s["title"] == "11/6(금) 휴관"
+    assert s["status"] == {"label": "휴관", "tone": "warning"}
+    assert s["metrics"] == []
 
 
-def test_within_tntworks_limits():
+def test_service_corner_tile():
+    week = make_week()
+    week["days"][0]["lunch"] += ["서비스코너:소면"]
+    assert build_summary(week, datetime(2026, 11, 2, 9, 0))["metrics"][-1] == {"label": "서비스코너", "value": "소면"}
+
+
+def test_within_summary_limits():
     week = make_week()
     week["days"][0]["lunch"] = ["아주긴메뉴이름" * 20] * 10
-    meta = build_card(week, datetime(2026, 11, 2, 9, 0))["meta"]
-    assert len(meta["title"]) <= 200 and len(meta["status"]["label"]) <= 40
-    assert len(meta["messages"]) <= 20
-    assert all(len(m["subject"]) <= 200 and len(m["body"]) <= 4000 for m in meta["messages"])
+    s = build_summary(week, datetime(2026, 11, 2, 9, 0))
+    assert set(s) <= {"title", "status", "metrics", "attributes", "messages", "links"}  # 모르는 필드는 400
+    assert len(s["title"]) <= 200 and len(s["status"]["label"]) <= 40
+    assert len(s["metrics"]) <= 8 and all(0 < len(m["value"]) <= 40 and len(m["label"]) <= 40 for m in s["metrics"])
+    assert len(s["attributes"]) <= 12 and all(len(a["name"]) <= 40 and len(a["value"]) <= 200 for a in s["attributes"])
+
+
+
 
 
 # ---- 끼니 댓글

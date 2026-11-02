@@ -14,7 +14,7 @@ import re
 import statistics
 import sys
 from dataclasses import dataclass
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from pathlib import Path
 
 import requests
@@ -214,9 +214,9 @@ def _clean(text: str) -> str:
     return text
 
 
-# ---------------------------------------------------------------- tntworks 카드
+# ---------------------------------------------------------------- tntworks 앱 요약·댓글
 
-APP_SLUG = "pandomeal"  # tntworks/manifest.json 의 slug 와 같아야 한다
+APP_SLUG = "pandomeal"  # tntworks/manifest.json 의 slug 와 같아야 한다 (요약 API 경로에 들어간다)
 
 
 def load_env(path: Path = ROOT / ".env") -> None:
@@ -240,7 +240,7 @@ def _closed(day: dict) -> str | None:
     return None
 
 
-# 이 시각부터 카드·댓글이 석식으로 바뀐다. 실행 시각(plist 의 09:00·13:30)과 맞춘다.
+# 이 시각부터 요약·댓글이 석식으로 바뀐다. 실행 시각(plist 의 09:00·13:30)과 맞춘다.
 DINNER_FROM = time(13, 30)
 MEAL_NAME = {"lunch": "중식", "dinner": "석식"}
 # 매일 나와서 볼 필요가 없는 항목. 빼야 그날 달라지는 메뉴가 눈에 들어온다.
@@ -259,26 +259,50 @@ def _day_label(day: dict) -> str:
     return f"{_md(date.fromisoformat(day['date']))}({day['weekday']})"
 
 
-def build_card(week: dict, now: datetime) -> dict:
-    """지금 끼니만 보여주는 카드. url 이 카드의 열쇠라 같은 주는 같은 카드가 고쳐진다."""
-    day = next(d for d in week["days"] if d["date"] == now.date().isoformat())
+def _role(i: int, dish: str) -> str:
+    """지표 타일 이름. 식단표에는 구분이 없어 자리와 이름으로 짐작한다: 보통 국, 주메뉴, 반찬 순이다."""
+    if dish.startswith("서비스코너:"):
+        return "서비스코너"
+    if i == 1:
+        return "주메뉴"
+    return "국" if re.search(r"(국|탕|찌개|육개장)$", dish) else "반찬"
+
+
+def _day_of(week: dict | None, d: date) -> dict | None:
+    return next((x for x in (week or {}).get("days", []) if x["date"] == d.isoformat()), None)
+
+
+def build_summary(week: dict, now: datetime, next_week: dict | None = None) -> dict:
+    """앱 페이지(사이드바 › 앱)에 올릴 요약. 지금 끼니 메뉴를 큰 지표 타일로 보여준다.
+
+    요약은 보낼 때마다 통째로 바뀌므로 매번 전체를 만든다. next_week 는 내일이 다음 주일 때(일요일 석식 이후) 쓴다.
+    """
+    day = _day_of(week, now.date())
     meal = meal_at(now)
     if _closed(day):
-        title = f"{_day_label(day)} {_closed(day)}"
-        status = {"label": _closed(day), "tone": "warning"}
-        messages = []
+        title, status, metrics = f"{_day_label(day)} {_closed(day)}", {"label": _closed(day), "tone": "warning"}, []
     else:
-        items = dishes(day, meal)
-        # 국이 맨 앞이고 그다음이 주메뉴인 게 보통이라 제목에는 두 번째를 쓴다.
-        main_dish = items[1] if len(items) > 1 else (items or ["-"])[0]
-        title = f"{MEAL_NAME[meal]} · {main_dish}"
-        status = {"label": _day_label(day), "tone": "info"}
-        messages = [{"subject": f"{_day_label(day)} {MEAL_NAME[meal]}", "body": "\n".join(f"- {x}" for x in items)[:4000] or "-"}]
+        items = dishes(day, meal)[:8]
+        title, status = f"{_day_label(day)} {MEAL_NAME[meal]}", {"label": MEAL_NAME[meal], "tone": "info"}
+        metrics = [{"label": _role(i, x), "value": x.removeprefix("서비스코너:")[:40]} for i, x in enumerate(items)]
+
+    # 다음 끼니 미리보기: 중식 때는 오늘 석식, 석식 때는 내일 중식.
+    if meal == "lunch":
+        nxt, nxt_meal = day, "dinner"
+    else:
+        tomorrow = now.date() + timedelta(days=1)
+        nxt, nxt_meal = _day_of(week, tomorrow) or _day_of(next_week, tomorrow), "lunch"
+    attributes = []
+    if nxt:
+        value = _closed(nxt) or ", ".join(dishes(nxt, nxt_meal)) or "-"
+        attributes.append({"name": f"다음 · {_day_label(nxt)} {MEAL_NAME[nxt_meal]}", "value": value[:200]})
+
     return {
-        "kind": APP_SLUG,
-        "url": week["source_url"],
         "title": title[:200],
-        "meta": {"title": title[:200], "status": status, "attributes": [], "messages": messages, "actions": []},
+        "status": status,
+        "metrics": metrics,
+        "attributes": attributes,
+        "links": [{"label": "원본 식단표", "url": week["source_url"]}],
     }
 
 
@@ -308,8 +332,9 @@ def _api(method: str, path: str, body: dict | None = None, allow_404: bool = Fal
     return r
 
 
-def post_card(week: dict, now: datetime) -> None:
-    _api("POST", f"/api/issues/{os.environ['TNTWORKS_ISSUE']}/attachments", build_card(week, now))
+def post_summary(week: dict, now: datetime) -> None:
+    next_week = current_week(now.date() + timedelta(days=1))
+    _api("PUT", f"/api/apps/{APP_SLUG}/summary", build_summary(week, now, next_week))
 
 
 COMMENT_STATE = DATA_DIR / "comment-state.json"
@@ -399,14 +424,14 @@ def main() -> int:
         now = datetime.now()
         week = current_week(now.date())
         if week is None:
-            print(f"[카드] {now.date()} 이 들어 있는 주 식단이 아직 없음")
+            print(f"[요약] {now.date()} 이 들어 있는 주 식단이 아직 없음")
         else:
             try:
-                post_card(week, now)
-                print(f"[카드] {os.environ['TNTWORKS_ISSUE']} 카드를 {now.date()} {MEAL_NAME[meal_at(now)]}으로 갱신")
+                post_summary(week, now)
+                print(f"[요약] 앱 페이지를 {now.date()} {MEAL_NAME[meal_at(now)]}으로 갱신")
             except Exception as e:
                 failed += 1
-                print(f"[실패] 카드 게시: {e}", file=sys.stderr)
+                print(f"[실패] 앱 요약: {e}", file=sys.stderr)
             try:
                 if post_meal_comment(week, now):
                     print(f"[댓글] {os.environ['TNTWORKS_ISSUE']} 에 {now.date()} {MEAL_NAME[meal_at(now)]} 댓글 (직전 댓글 삭제)")
