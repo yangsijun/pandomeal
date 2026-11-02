@@ -270,12 +270,13 @@ def build_summary(week: dict, now: datetime, next_week: dict | None = None) -> d
     """
     day = _day_of(week, now.date())
     meal = meal_at(now)
-    # 메뉴를 제목 한 줄에 넣는다: 앱 페이지에서 가장 큰 글자이고, 나누거나 분류하지 않아도 한눈에 읽힌다.
+    # 메뉴마다 지표 타일 하나: 앱 페이지에서 가장 큰 글씨(20px)다. 식단표에 분류가 없으므로 이름표는 끼니 이름만 붙인다.
     if _closed(day):
-        title, status = _closed(day), {"label": _day_label(day), "tone": "warning"}
+        title, status, metrics = _closed(day), {"label": _day_label(day), "tone": "warning"}, []
     else:
-        title = " · ".join(dishes(day, meal)) or "-"
-        status = {"label": f"{_day_label(day)} {MEAL_NAME[meal]}", "tone": "info"}
+        title = f"{_day_label(day)} {MEAL_NAME[meal]}"
+        status = {"label": MEAL_NAME[meal], "tone": "info"}
+        metrics = [{"label": MEAL_NAME[meal], "value": x[:40]} for x in dishes(day, meal)[:8]]
 
     # 다음 끼니 미리보기: 중식 때는 오늘 석식, 석식 때는 내일 중식.
     if meal == "lunch":
@@ -291,6 +292,7 @@ def build_summary(week: dict, now: datetime, next_week: dict | None = None) -> d
     return {
         "title": title[:200],
         "status": status,
+        "metrics": metrics,
         "attributes": attributes,
         "links": [{"label": "원본 식단표", "url": week["source_url"]}],
     }
