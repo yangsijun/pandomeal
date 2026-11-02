@@ -14,7 +14,7 @@ import re
 import statistics
 import sys
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, time
 from pathlib import Path
 
 import requests
@@ -240,43 +240,45 @@ def _closed(day: dict) -> str | None:
     return None
 
 
-def build_card(week: dict, today: date) -> dict:
-    """주간 식단 JSON 을 tntworks 카드 요청 본문으로 바꾼다. url 이 카드의 열쇠라 같은 주는 같은 카드가 고쳐진다."""
-    days = week["days"]
-    first, last = date.fromisoformat(days[0]["date"]), date.fromisoformat(days[-1]["date"])
-    title = f"판교도서관 식단 · {_md(first)}({days[0]['weekday']}) ~ {_md(last)}({days[-1]['weekday']})"
-    today_menu = next((d for d in days if d["date"] == today.isoformat()), None)
+# 이 시각부터 카드·댓글이 석식으로 바뀐다. 실행 시각(plist 의 09:00·13:30)과 맞춘다.
+DINNER_FROM = time(13, 30)
+MEAL_NAME = {"lunch": "중식", "dinner": "석식"}
+# 매일 나와서 볼 필요가 없는 항목. 빼야 그날 달라지는 메뉴가 눈에 들어온다.
+STAPLES = {"잡곡밥/백미밥", "백미밥", "배추김치", "백김치", "깍두기"}
 
-    if today_menu is None:
-        status = {"label": "이번 주 아님", "tone": "neutral"}
-        attributes = []
-    elif _closed(today_menu):
-        status = {"label": f"오늘 {_closed(today_menu)}", "tone": "warning"}
-        attributes = []
+
+def meal_at(now: datetime) -> str:
+    return "lunch" if now.time() < DINNER_FROM else "dinner"
+
+
+def dishes(day: dict, meal: str) -> list[str]:
+    return [x for x in day[meal] if x not in STAPLES]
+
+
+def _day_label(day: dict) -> str:
+    return f"{_md(date.fromisoformat(day['date']))}({day['weekday']})"
+
+
+def build_card(week: dict, now: datetime) -> dict:
+    """지금 끼니만 보여주는 카드. url 이 카드의 열쇠라 같은 주는 같은 카드가 고쳐진다."""
+    day = next(d for d in week["days"] if d["date"] == now.date().isoformat())
+    meal = meal_at(now)
+    if _closed(day):
+        title = f"{_day_label(day)} {_closed(day)}"
+        status = {"label": _closed(day), "tone": "warning"}
+        messages = []
     else:
-        status = {"label": f"오늘 {_md(today)}({today_menu['weekday']})", "tone": "info"}
-        attributes = [
-            {"name": "오늘 중식", "value": ", ".join(today_menu["lunch"])[:200]},
-            {"name": "오늘 석식", "value": ", ".join(today_menu["dinner"])[:200]},
-        ]
-
-    messages = []
-    for d in days:
-        day = date.fromisoformat(d["date"])
-        mark = " · 오늘" if day == today else ""
-        body = f"**중식** {', '.join(d['lunch']) or '-'}\n\n**석식** {', '.join(d['dinner']) or '-'}"
-        messages.append({
-            "subject": f"{_md(day)} ({d['weekday']}){mark}",
-            "body": body[:4000],
-            "timestamp": f"{d['date']}T00:00:00+09:00",
-        })
-
+        items = dishes(day, meal)
+        # 국이 맨 앞이고 그다음이 주메뉴인 게 보통이라 제목에는 두 번째를 쓴다.
+        main_dish = items[1] if len(items) > 1 else (items or ["-"])[0]
+        title = f"{MEAL_NAME[meal]} · {main_dish}"
+        status = {"label": _day_label(day), "tone": "info"}
+        messages = [{"subject": f"{_day_label(day)} {MEAL_NAME[meal]}", "body": "\n".join(f"- {x}" for x in items)[:4000] or "-"}]
     return {
         "kind": APP_SLUG,
         "url": week["source_url"],
-        "title": title,
-        "subtitle": "도서관 게시판 이미지를 OCR로 읽은 내용입니다. 오타가 있으면 원본을 확인하세요.",
-        "meta": {"title": title, "status": status, "attributes": attributes, "messages": messages, "actions": []},
+        "title": title[:200],
+        "meta": {"title": title[:200], "status": status, "attributes": [], "messages": messages, "actions": []},
     }
 
 
@@ -288,12 +290,11 @@ def current_week(today: date) -> dict | None:
     return None
 
 
-def comment_body(day: dict) -> str:
-    """오늘 메뉴 댓글. 구독자 푸시에는 앞 200자만 보이고 마크다운이 그대로 나오므로 평문으로 쓴다."""
-    head = f"{_md(date.fromisoformat(day['date']))}({day['weekday']})"
+def comment_body(day: dict, meal: str) -> str:
+    """끼니 댓글. 구독자 푸시에는 앞 200자만 보이고 마크다운이 그대로 나오므로 평문으로 쓴다."""
     if _closed(day):
-        return f"{head} {_closed(day)}"
-    return f"{head} 중식: {', '.join(day['lunch'])}\n석식: {', '.join(day['dinner'])}"
+        return f"{_day_label(day)} {_closed(day)}"
+    return f"{_day_label(day)} {MEAL_NAME[meal]}\n{', '.join(dishes(day, meal))}"
 
 
 def _api(method: str, path: str, body: dict | None = None, allow_404: bool = False) -> requests.Response:
@@ -307,26 +308,30 @@ def _api(method: str, path: str, body: dict | None = None, allow_404: bool = Fal
     return r
 
 
-def post_card(week: dict, today: date) -> None:
-    _api("POST", f"/api/issues/{os.environ['TNTWORKS_ISSUE']}/attachments", build_card(week, today))
+def post_card(week: dict, now: datetime) -> None:
+    _api("POST", f"/api/issues/{os.environ['TNTWORKS_ISSUE']}/attachments", build_card(week, now))
 
 
 COMMENT_STATE = DATA_DIR / "comment-state.json"
 
 
-def post_daily_comment(week: dict, today: date) -> bool:
-    """오늘 메뉴 댓글을 하루 한 번 달고 전날 댓글은 지운다. 이미 달았으면 False.
+def post_meal_comment(week: dict, now: datetime) -> bool:
+    """지금 끼니 댓글을 끼니마다 한 번 달고 직전 댓글은 지운다. 이미 달았으면 False.
 
-    새 댓글을 먼저 단 뒤 지운다: 순서를 바꾸면 작성이 실패한 날 댓글이 하나도 없게 된다.
+    새 댓글을 먼저 단 뒤 지운다: 순서를 바꾸면 작성이 실패했을 때 댓글이 하나도 없게 된다.
     """
     issue = os.environ["TNTWORKS_ISSUE"]
+    meal = meal_at(now)
+    day = next(d for d in week["days"] if d["date"] == now.date().isoformat())
+    key = f"{day['date']}:{meal}"
     state = json.loads(COMMENT_STATE.read_text()) if COMMENT_STATE.exists() else {}
-    if state.get("date") == today.isoformat():
+    if state.get("key") == key:
         return False
-    day = next(d for d in week["days"] if d["date"] == today.isoformat())
-    new_id = _api("POST", f"/api/issues/{issue}/comments", {"body": comment_body(day)}).json()["id"]
+    if _closed(day) and state.get("key", "").startswith(day["date"]):
+        return False  # 휴관 알림은 하루 한 번이면 된다
+    new_id = _api("POST", f"/api/issues/{issue}/comments", {"body": comment_body(day, meal)}).json()["id"]
     DATA_DIR.mkdir(exist_ok=True)
-    COMMENT_STATE.write_text(json.dumps({"date": today.isoformat(), "id": new_id}) + "\n")
+    COMMENT_STATE.write_text(json.dumps({"key": key, "id": new_id}) + "\n")
     if state.get("id"):
         _api("DELETE", f"/api/issues/{issue}/comments/{state['id']}", allow_404=True)  # 이미 지워졌으면 무시
     return True
@@ -391,20 +396,20 @@ def main() -> int:
 
     # 토큰이 없으면 크롤링만 한다.
     if os.environ.get("TNTWORKS_TOKEN") and os.environ.get("TNTWORKS_ISSUE"):
-        today = date.today()
-        week = current_week(today)
+        now = datetime.now()
+        week = current_week(now.date())
         if week is None:
-            print(f"[카드] {today} 이 들어 있는 주 식단이 아직 없음")
+            print(f"[카드] {now.date()} 이 들어 있는 주 식단이 아직 없음")
         else:
             try:
-                post_card(week, today)
-                print(f"[카드] {os.environ['TNTWORKS_ISSUE']} 에 {week['week_start']} 주 카드 갱신")
+                post_card(week, now)
+                print(f"[카드] {os.environ['TNTWORKS_ISSUE']} 카드를 {now.date()} {MEAL_NAME[meal_at(now)]}으로 갱신")
             except Exception as e:
                 failed += 1
                 print(f"[실패] 카드 게시: {e}", file=sys.stderr)
             try:
-                if post_daily_comment(week, today):
-                    print(f"[댓글] {os.environ['TNTWORKS_ISSUE']} 에 {today} 메뉴 댓글 (전날 댓글 삭제)")
+                if post_meal_comment(week, now):
+                    print(f"[댓글] {os.environ['TNTWORKS_ISSUE']} 에 {now.date()} {MEAL_NAME[meal_at(now)]} 댓글 (직전 댓글 삭제)")
             except Exception as e:
                 failed += 1
                 print(f"[실패] 댓글: {e}", file=sys.stderr)

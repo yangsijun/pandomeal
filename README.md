@@ -1,8 +1,8 @@
 # pandomeal
 
-판교도서관 구내식당 [주간식단표 게시판](https://www.snlib.go.kr/pg/menu/10511/bbs/20023/bbsPostList.do)에서 새 식단표 이미지를 받아 `images/`에 저장하고, macOS Vision OCR로 요일별 중식/석식을 읽어 `data/<주 시작일>.json`으로 저장한다. 토큰을 넣으면 tntworks 이슈 [TNT-477](https://works.tntlabs.dev/issue/TNT-477)에 이번 주 식단 카드를 붙이고, 매일 오늘 메뉴를 댓글로 단다 (전날 댓글은 지운다). 이슈 구독자는 그 댓글을 푸시로 받는다.
+판교도서관 구내식당 [주간식단표 게시판](https://www.snlib.go.kr/pg/menu/10511/bbs/20023/bbsPostList.do)에서 새 식단표 이미지를 받아 `images/`에 저장하고, macOS Vision OCR로 요일별 중식/석식을 읽어 `data/<주 시작일>.json`으로 저장한다. 토큰을 넣으면 tntworks 이슈 [TNT-477](https://works.tntlabs.dev/issue/TNT-477)에 식단 카드를 붙인다. 카드는 **지금 끼니**만 보여준다 (13:30 전 중식, 이후 석식, 밥·김치 제외). 끼니마다 메뉴 댓글을 달고 직전 댓글은 지운다. 이슈 구독자는 그 댓글을 푸시로 받는다.
 
-운영은 tntworks 와 같은 맥 미니에서 한다. tntworks 와 같은 방식으로 숨은 서비스 계정(`pandomeal`)과 시스템 LaunchDaemon(`xyz.tntlab.pandomeal`)을 쓰므로, 아무도 로그인하지 않아도 매일 09:00 에 돈다. FileVault 잠금 화면에서 멈춘 동안은 돌지 않는다 (tntworks `docs/OPERATIONS.md` "재부팅과 FileVault").
+운영은 tntworks 와 같은 맥 미니에서 한다. tntworks 와 같은 방식으로 숨은 서비스 계정(`pandomeal`)과 시스템 LaunchDaemon(`xyz.tntlab.pandomeal`)을 쓰므로, 아무도 로그인하지 않아도 매일 09:00(중식)·13:30(석식) 에 돈다. FileVault 잠금 화면에서 멈춘 동안은 돌지 않는다 (tntworks `docs/OPERATIONS.md` "재부팅과 FileVault").
 
 | 무엇 | 위치 |
 |---|---|
@@ -26,7 +26,7 @@
    ```
    계정이 없으면 만들고, 이 clone 의 **커밋된 HEAD** 를 `/Users/pandomeal/app` 에 펼친 뒤 등록하고 바로 한 번 실행한다. `data/`·`images/`·`logs/`·`.env` 는 덮어쓰지 않는다.
 4. **토큰.** `sudo nano /Users/pandomeal/app/.env` 에 `TNTWORKS_TOKEN` 을 넣는다 (`TNTWORKS_ISSUE=TNT-477` 은 들어 있다). 비워두면 크롤링만 한다.
-5. **확인.** `sudo launchctl kickstart -k system/xyz.tntlab.pandomeal` 후 로그에 `[카드] … 카드 갱신` 과 `[댓글] …` 이 찍히고 TNT-477 에 카드와 오늘 메뉴 댓글이 붙으면 끝. 푸시를 받으려면 TNT-477 을 구독한다 (만든 사람은 자동 구독). 같은 날 다시 실행해도 댓글은 하루 한 번만 단다 (`data/comment-state.json`).
+5. **확인.** `sudo launchctl kickstart -k system/xyz.tntlab.pandomeal` 후 로그에 `[카드] … 카드 갱신` 과 `[댓글] …` 이 찍히고 TNT-477 에 카드와 끼니 메뉴 댓글이 붙으면 끝. 푸시를 받으려면 TNT-477 을 구독한다 (만든 사람은 자동 구독). 다시 실행해도 댓글은 끼니마다 한 번만 단다 (`data/comment-state.json`).
 
 코드를 고친 뒤에는 관리자 clone 에서 `git pull && sudo ./scripts/install-service.sh` 를 다시 실행한다.
 
