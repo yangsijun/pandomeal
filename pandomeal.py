@@ -233,6 +233,13 @@ def _md(d: date) -> str:
     return f"{d.month}/{d.day}"
 
 
+def _closed(day: dict) -> str | None:
+    """휴관일이면 그 사유("휴관", "추석연휴" 등). 휴관일은 중식·석식 칸이 합쳐져 같은 글자 하나만 나온다."""
+    if len(day["lunch"]) <= 1 and day["lunch"] == day["dinner"]:
+        return (day["lunch"] or ["휴무"])[0]
+    return None
+
+
 def build_card(week: dict, today: date) -> dict:
     """주간 식단 JSON 을 tntworks 카드 요청 본문으로 바꾼다. url 이 카드의 열쇠라 같은 주는 같은 카드가 고쳐진다."""
     days = week["days"]
@@ -243,9 +250,8 @@ def build_card(week: dict, today: date) -> dict:
     if today_menu is None:
         status = {"label": "이번 주 아님", "tone": "neutral"}
         attributes = []
-    elif len(today_menu["lunch"]) <= 1 and today_menu["lunch"] == today_menu["dinner"]:
-        # 휴관일은 중식·석식 칸이 하나로 합쳐져 "휴관", "추석연휴"처럼 같은 글자만 나온다.
-        status = {"label": f"오늘 {(today_menu['lunch'] or ['휴무'])[0]}", "tone": "warning"}
+    elif _closed(today_menu):
+        status = {"label": f"오늘 {_closed(today_menu)}", "tone": "warning"}
         attributes = []
     else:
         status = {"label": f"오늘 {_md(today)}({today_menu['weekday']})", "tone": "info"}
@@ -282,17 +288,48 @@ def current_week(today: date) -> dict | None:
     return None
 
 
-def post_card(week: dict, today: date) -> None:
+def comment_body(day: dict) -> str:
+    """오늘 메뉴 댓글. 구독자 푸시에는 앞 200자만 보이고 마크다운이 그대로 나오므로 평문으로 쓴다."""
+    head = f"{_md(date.fromisoformat(day['date']))}({day['weekday']})"
+    if _closed(day):
+        return f"{head} {_closed(day)}"
+    return f"{head} 중식: {', '.join(day['lunch'])}\n석식: {', '.join(day['dinner'])}"
+
+
+def _api(method: str, path: str, body: dict | None = None, allow_404: bool = False) -> requests.Response:
     base = os.environ.get("TNTWORKS_URL", "https://api.tntlabs.dev").rstrip("/")
-    issue = os.environ["TNTWORKS_ISSUE"]
-    r = session.post(
-        f"{base}/api/issues/{issue}/attachments",
-        json=build_card(week, today),
-        headers={"Authorization": f"Bearer {os.environ['TNTWORKS_TOKEN']}"},
-        timeout=30,
+    r = session.request(
+        method, f"{base}{path}", json=body,
+        headers={"Authorization": f"Bearer {os.environ['TNTWORKS_TOKEN']}"}, timeout=30,
     )
-    if not r.ok:
-        raise RuntimeError(f"tntworks {r.status_code}: {r.text[:300]}")
+    if not r.ok and not (allow_404 and r.status_code == 404):
+        raise RuntimeError(f"tntworks {method} {path} {r.status_code}: {r.text[:300]}")
+    return r
+
+
+def post_card(week: dict, today: date) -> None:
+    _api("POST", f"/api/issues/{os.environ['TNTWORKS_ISSUE']}/attachments", build_card(week, today))
+
+
+COMMENT_STATE = DATA_DIR / "comment-state.json"
+
+
+def post_daily_comment(week: dict, today: date) -> bool:
+    """오늘 메뉴 댓글을 하루 한 번 달고 전날 댓글은 지운다. 이미 달았으면 False.
+
+    새 댓글을 먼저 단 뒤 지운다: 순서를 바꾸면 작성이 실패한 날 댓글이 하나도 없게 된다.
+    """
+    issue = os.environ["TNTWORKS_ISSUE"]
+    state = json.loads(COMMENT_STATE.read_text()) if COMMENT_STATE.exists() else {}
+    if state.get("date") == today.isoformat():
+        return False
+    day = next(d for d in week["days"] if d["date"] == today.isoformat())
+    new_id = _api("POST", f"/api/issues/{issue}/comments", {"body": comment_body(day)}).json()["id"]
+    DATA_DIR.mkdir(exist_ok=True)
+    COMMENT_STATE.write_text(json.dumps({"date": today.isoformat(), "id": new_id}) + "\n")
+    if state.get("id"):
+        _api("DELETE", f"/api/issues/{issue}/comments/{state['id']}", allow_404=True)  # 이미 지워졌으면 무시
+    return True
 
 
 # ---------------------------------------------------------------- 실행
@@ -365,6 +402,12 @@ def main() -> int:
             except Exception as e:
                 failed += 1
                 print(f"[실패] 카드 게시: {e}", file=sys.stderr)
+            try:
+                if post_daily_comment(week, today):
+                    print(f"[댓글] {os.environ['TNTWORKS_ISSUE']} 에 {today} 메뉴 댓글 (전날 댓글 삭제)")
+            except Exception as e:
+                failed += 1
+                print(f"[실패] 댓글: {e}", file=sys.stderr)
     return 1 if failed else 0
 
 

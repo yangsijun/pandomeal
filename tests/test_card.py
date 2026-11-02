@@ -51,3 +51,55 @@ def test_within_tntworks_limits():
     assert len(meta["messages"]) <= 20
     assert all(len(m["subject"]) <= 200 and len(m["body"]) <= 4000 and len(m["timestamp"]) <= 40
                for m in meta["messages"])
+
+
+# ---- 매일 댓글
+
+import pandomeal  # noqa: E402
+from pandomeal import comment_body, post_daily_comment  # noqa: E402
+
+
+def test_comment_body_plain_text():
+    week = make_week()
+    assert comment_body(week["days"][1]) == (
+        "11/3(화) 중식: 잡곡밥/백미밥, 황태미역국, 깻잎콩불고기, 배추김치\n석식: 백미밥, 등촌샤브칼국수, 배추김치"
+    )
+    assert comment_body(week["days"][4]) == "11/6(금) 휴관"
+
+
+class FakeApi:
+    def __init__(self):
+        self.calls = []
+        self.next_id = 0
+
+    def __call__(self, method, path, body=None, allow_404=False):
+        self.calls.append((method, path, allow_404))
+        self.next_id += 1
+        outer = self
+
+        class R:
+            def json(self):
+                return {"id": f"c{outer.next_id}"}
+        return R()
+
+
+def test_daily_comment_once_per_day_and_deletes_previous(tmp_path, monkeypatch):
+    api = FakeApi()
+    monkeypatch.setattr(pandomeal, "_api", api)
+    monkeypatch.setattr(pandomeal, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(pandomeal, "COMMENT_STATE", tmp_path / "comment-state.json")
+    monkeypatch.setenv("TNTWORKS_ISSUE", "TNT-477")
+    week = make_week()
+
+    assert post_daily_comment(week, date(2026, 11, 2)) is True
+    assert api.calls == [("POST", "/api/issues/TNT-477/comments", False)]
+
+    assert post_daily_comment(week, date(2026, 11, 2)) is False  # 같은 날 두 번째 실행
+    assert len(api.calls) == 1
+
+    assert post_daily_comment(week, date(2026, 11, 3)) is True
+    assert api.calls[1:] == [
+        ("POST", "/api/issues/TNT-477/comments", False),
+        ("DELETE", "/api/issues/TNT-477/comments/c1", True),
+    ]
+    assert json.loads((tmp_path / "comment-state.json").read_text()) == {"date": "2026-11-03", "id": "c2"}
