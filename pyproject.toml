@@ -1,0 +1,18 @@
+[project]
+name = "pandomeal"
+version = "0.1.0"
+description = "판교도서관 구내식당 주간식단표 크롤러"
+requires-python = ">=3.13"
+dependencies = [
+    "beautifulsoup4>=4.15.0",
+    "ocrmac>=1.0.1",
+    "requests>=2.34.2",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2.0",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
