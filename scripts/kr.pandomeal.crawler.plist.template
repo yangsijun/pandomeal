@@ -15,13 +15,9 @@
   </array>
   <key>WorkingDirectory</key>
   <string>__ROOT__</string>
-  <!-- 매일 09:00, 13:00, 18:00. 맥이 잠들어 있었으면 깨어난 직후 한 번 실행된다. -->
+  <!-- 매일 09:00. 그 시각에 잠자기 중이었으면 깨어난 직후 한 번 실행된다. -->
   <key>StartCalendarInterval</key>
-  <array>
-    <dict><key>Hour</key><integer>9</integer><key>Minute</key><integer>0</integer></dict>
-    <dict><key>Hour</key><integer>13</integer><key>Minute</key><integer>0</integer></dict>
-    <dict><key>Hour</key><integer>18</integer><key>Minute</key><integer>0</integer></dict>
-  </array>
+  <dict><key>Hour</key><integer>9</integer><key>Minute</key><integer>0</integer></dict>
   <key>RunAtLoad</key>
   <true/>
   <key>StandardOutPath</key>
