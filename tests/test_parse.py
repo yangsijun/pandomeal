@@ -57,3 +57,12 @@ def test_two_headers_in_one_ocr_box(week_0914):
     assert [d["date"][5:] for d in week_0914] == ["09-14", "09-15", "09-16", "09-17", "09-18", "09-19", "09-20"]
     assert week_0914[4]["lunch"][1] == "콩비지찌개"
     assert week_0914[5]["lunch"][1] == "아욱된장국"
+
+
+def test_footnote_star_misread_as_1():
+    # 회귀(11/9 주): 첫 원산지 주석의 "*" 를 OCR 이 "1" 로 읽어 주석이 표 안으로 들어오고 석식이 중식에 섞였다.
+    week = parse_table(ocr(FIXTURES / "2026-11-09.jpg"), 2026)
+    thu = week[3]
+    assert thu["lunch"][-1] == "서비스코너:소면" and "고추장제육볶음" not in thu["lunch"]
+    assert thu["dinner"] == ["백미밥", "시래기된장국", "고추장제육볶음", "교자물만두&초간정", "참나물무침", "배추김치"]
+    assert all("국내산" not in x for d in week for x in d["lunch"] + d["dinner"])

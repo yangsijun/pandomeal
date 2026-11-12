@@ -35,7 +35,7 @@ def test_lunch_summary_one_tile_per_dish():
 
 
 def test_dinner_summary_previews_tomorrow_lunch():
-    s = build_summary(make_week(), datetime(2026, 11, 5, 13, 30))
+    s = build_summary(make_week(), datetime(2026, 11, 5, 17, 0))
     assert s["title"] == "11/5(목) 석식"
     assert s["attributes"] == [{"name": "다음 · 11/6(금) 중식", "value": "휴관"}]
 
@@ -112,7 +112,7 @@ def test_comment_once_per_meal_and_deletes_previous(tmp_path, monkeypatch):
     assert post_meal_comment(week, datetime(2026, 11, 2, 11, 0)) is False  # 같은 끼니 재실행
     assert len(api.calls) == 1
 
-    assert post_meal_comment(week, datetime(2026, 11, 2, 13, 30)) is True  # 석식으로 넘어감
+    assert post_meal_comment(week, datetime(2026, 11, 2, 17, 0)) is True  # 석식으로 넘어감
     assert api.calls[1:] == [POST, ("DELETE", "/api/issues/TNT-477/comments/c1", True)]
     assert json.loads((tmp_path / "comment-state.json").read_text()) == {"key": "2026-11-02:dinner", "id": "c2"}
 
@@ -124,7 +124,7 @@ def test_holiday_comment_once_a_day(tmp_path, monkeypatch):
     monkeypatch.setenv("TNTWORKS_ISSUE", "TNT-477")
     week = make_week()
     assert post_meal_comment(week, datetime(2026, 11, 6, 9, 0)) is True
-    assert post_meal_comment(week, datetime(2026, 11, 6, 13, 30)) is False
+    assert post_meal_comment(week, datetime(2026, 11, 6, 17, 0)) is False
 
 
 def test_current_week_ignores_comment_state(tmp_path, monkeypatch):

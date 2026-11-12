@@ -160,7 +160,8 @@ def parse_table(boxes: list[Box], year: int) -> list[dict]:
     header_bottom = max(b.y + b.h for b, _ in headers)
     weekday_row = [b for b in boxes if b.text.strip() in WEEKDAYS and b.y >= header_bottom - 0.01]
     top = max((b.y + b.h for b in weekday_row), default=header_bottom + 0.03)
-    bottom = min((b.y for b in boxes if b.text.startswith("*") and b.y > top), default=1.0)
+    # 원산지 주석은 "*" 로 시작하고 표 너비만큼 길다. OCR 이 "*" 를 "1" 로 읽기도 해서(11/9 주) 폭으로도 찾는다.
+    bottom = min((b.y for b in boxes if b.y > top and (b.text.startswith("*") or b.w > 4 * half_col)), default=1.0)
 
     columns: dict[int, list[Box]] = {i: [] for i in range(len(headers))}
     for b in boxes:
@@ -240,8 +241,8 @@ def _closed(day: dict) -> str | None:
     return None
 
 
-# 이 시각부터 요약·댓글이 석식으로 바뀐다. 실행 시각(plist 의 09:00·13:30)과 맞춘다.
-DINNER_FROM = time(13, 30)
+# 이 시각부터 요약·댓글이 석식으로 바뀐다. 실행 시각(plist 의 10:00·17:00)과 맞춘다.
+DINNER_FROM = time(17, 0)
 MEAL_NAME = {"lunch": "중식", "dinner": "석식"}
 # 매일 나와서 볼 필요가 없는 항목. 빼야 그날 달라지는 메뉴가 눈에 들어온다.
 STAPLES = {"잡곡밥/백미밥", "백미밥", "배추김치", "백김치", "깍두기"}
